@@ -1,0 +1,12 @@
+[package]
+name = "nu_jvmdb"
+version = "0.1.0"
+authors = ["John Gallagher <john@gllghr.com>"]
+edition = "2018"
+
+[dependencies]
+nu-plugin = "~0"
+nu-protocol = "~0"
+nu-source = "~0"
+nu-errors = "~0"
+byteorder = "1.3"
