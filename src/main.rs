@@ -45,7 +45,7 @@ impl Plugin for Len {
 
 fn main() {
     let j_conn = JdwpConnection::new("localhost:5005").unwrap();
-    //j_conn.cmd();
+    println!("{:?}", jdwp::version(j_conn).unwrap());
 
     //serve_plugin(&mut Len::new());
 }

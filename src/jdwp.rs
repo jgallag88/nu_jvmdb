@@ -3,7 +3,7 @@ use std::convert::TryInto;
 use std::net::ToSocketAddrs;
 use std::net::TcpStream;
 use std::io::Result;
-use std::io::{Read, Write};
+use std::io::{Cursor, Read, Write};
 use byteorder::{BigEndian, ReadBytesExt, WriteBytesExt};
 
 pub struct JdwpConnection {
@@ -31,8 +31,6 @@ impl JdwpConnection {
         let id = self.next_id.get();
         self.next_id.set(id+1);
 
-        send_command(stream, 1, 1, id, &[])?;
-
         let len = data.len() + 11; // 11 is size of header
         stream.write_u32::<BigEndian>(len.try_into().unwrap())?;
         stream.write_u32::<BigEndian>(id)?;
@@ -42,8 +40,8 @@ impl JdwpConnection {
         stream.write_all(data)?;
 
         let len = stream.read_u32::<BigEndian>()? - 11; // 11 is size of header
-        let id = stream.read_u32::<BigEndian>()?; // TODO check that id is what we expect
-        let flags = stream.read_u8()?;
+        let _id = stream.read_u32::<BigEndian>()?; // TODO check that id is what we expect
+        let flags = stream.read_u8()?; // TODO check response flag
         let error_code = stream.read_u16::<BigEndian>()?;
         let mut buf = vec![0; len as usize];
         stream.read_exact(&mut buf)?;
@@ -52,61 +50,27 @@ impl JdwpConnection {
 }
 
 
-
-fn send_command(writer: &mut dyn Write,
-               command_set: u8,
-               command: u8,
-               id: u32,
-               data: &[u8]) -> Result<()> {
-
-    let len = data.len() + 11; // 11 is size of header
-    writer.write_u32::<BigEndian>(len.try_into().unwrap())?;
-    writer.write_u32::<BigEndian>(id)?;
-    writer.write_u8(0)?; // Flags
-    writer.write_u8(command_set)?;
-    writer.write_u8(command)?;
-    writer.write_all(data)?;
-
-    Ok(())
-}
-
-fn recv_reply(reader: &mut dyn Read) -> Result<Vec<u8>> {
-    let len = reader.read_u32::<BigEndian>()? - 11; // 11 is size of header
-    let id = reader.read_u32::<BigEndian>()?; // TODO check that id is what we expect
-    let flags = reader.read_u8()?;
-    let error_code = reader.read_u16::<BigEndian>()?;
-
-    let mut buf = vec![0; len as usize];
-    reader.read_exact(&mut buf)?;
-    Ok(buf)
-}
-
-
-fn serialize_string<W: Write>(writer: &mut W, s: &str) -> Result<()> {
-    let utf8 = s.as_bytes();
-    writer.write_u32::<BigEndian>(utf8.len().try_into().unwrap())?;
-    writer.write_all(utf8);
-    Ok(())
-}
-
-fn deserialize_string<R: Read>(reader: &mut R) -> Result<String> {
-    let str_len = reader.read_u32::<BigEndian>()?;
-
-    let mut buf = vec![0; str_len as usize];
-    reader.read_exact(&mut buf)?;
-    // TODO handle utf8 conversion errors, which will involve changing return
-    // type (or maybe using lossy conversion?)
-    Ok(String::from_utf8(buf).unwrap())
-}
-
 trait Serialize {
     fn serialize<W: Write>(self, writer: &mut W) -> Result<()>;
-    //fn deserialize<R: Read>(reader: &mut R) -> Result<Self>;
+    fn deserialize<R: Read>(reader: &mut R) -> Result<Self>
+        where Self: std::marker::Sized;
 }
 
 impl Serialize for u8 {
     fn serialize<W: Write>(self, writer: &mut W) -> Result<()> {
         writer.write_u8(self)
+    }
+    fn deserialize<R: Read>(reader: &mut R) -> Result<Self> {
+        reader.read_u8()
+    }
+}
+
+impl Serialize for u16 {
+    fn serialize<W: Write>(self, writer: &mut W) -> Result<()> {
+        writer.write_u16::<BigEndian>(self)
+    }
+    fn deserialize<R: Read>(reader: &mut R) -> Result<Self> {
+        reader.read_u16::<BigEndian>()
     }
 }
 
@@ -114,22 +78,69 @@ impl Serialize for u32 {
     fn serialize<W: Write>(self, writer: &mut W) -> Result<()> {
         writer.write_u32::<BigEndian>(self)
     }
+    fn deserialize<R: Read>(reader: &mut R) -> Result<Self> {
+        reader.read_u32::<BigEndian>()
+    }
 }
 
+impl Serialize for String {
+    fn serialize<W: Write>(self, writer: &mut W) -> Result<()> {
+        let utf8 = self.as_bytes();
+        writer.write_u32::<BigEndian>(utf8.len().try_into().unwrap())?;
+        writer.write_all(utf8);
+        Ok(())
+    }
+    
+    fn deserialize<R: Read>(reader: &mut R) -> Result<Self> {
+        let str_len = reader.read_u32::<BigEndian>()?;
+    
+        let mut buf = vec![0; str_len as usize];
+        reader.read_exact(&mut buf)?;
+        // TODO handle utf8 conversion errors, which will involve changing return
+        // type (or maybe using lossy conversion?)
+        Ok(String::from_utf8(buf).unwrap())
+    }
+}
+
+
 macro_rules! command {
-    ( $command:ident, $id:expr; $( $arg:ident: $arg_ty:ty ),* ) => {
-        fn $command(conn: JdwpConnection $(, $arg: $arg_ty )* ) {
+    ( $command:ident, $id:expr;
+      $( $arg:ident: $arg_ty:ty ),*;
+      $resp_name:ident;
+      $( $resp_val:ident: $resp_val_ty:ty ),*
+    ) => {
+
+        #[derive(Debug)]
+        pub struct $resp_name {
+            $(
+                $resp_val: $resp_val_ty,
+            )*
+        }
+
+        pub fn $command(conn: JdwpConnection $(, $arg: $arg_ty )* ) -> Result<$resp_name> {
             let mut buf = vec![];
             $(
                 $arg.serialize(&mut buf);
             )*
-            conn.execute_cmd(1, $id, &buf);
+            let mut resp_buf = &mut Cursor::new(conn.execute_cmd(1, $id, &buf)?);
+
+            Ok($resp_name {
+                $(
+                    $resp_val: Serialize::deserialize(resp_buf)?,
+                )*
+            })
         }
     };
 }
 
 command! {
-    foo, 23; blah: u32, asdf: u8
+    version, 1; ;
+    VersionReply;
+        description: String,
+        jdwpMajor: u32, // TODO this should be i32
+        jdwpMinor: u32, // TODO this should be i32
+        vmVersion: String,
+        vmName: String
 }
 
 macro_rules! command_set {
