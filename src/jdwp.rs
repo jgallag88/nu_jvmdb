@@ -78,16 +78,11 @@ impl JdwpConnection {
 
 trait Serialize {
     fn serialize<W: Write>(self, writer: &mut W) -> Result<()>;
-    fn deserialize<R: Read>(reader: &mut R) -> Result<Self>
-        where Self: std::marker::Sized;
 }
 
 impl Serialize for u8 {
     fn serialize<W: Write>(self, writer: &mut W) -> Result<()> {
         writer.write_u8(self)
-    }
-    fn deserialize<R: Read>(reader: &mut R) -> Result<Self> {
-        reader.read_u8()
     }
 }
 
@@ -95,17 +90,11 @@ impl Serialize for u16 {
     fn serialize<W: Write>(self, writer: &mut W) -> Result<()> {
         writer.write_u16::<BigEndian>(self)
     }
-    fn deserialize<R: Read>(reader: &mut R) -> Result<Self> {
-        reader.read_u16::<BigEndian>()
-    }
 }
 
 impl Serialize for u32 {
     fn serialize<W: Write>(self, writer: &mut W) -> Result<()> {
         writer.write_u32::<BigEndian>(self)
-    }
-    fn deserialize<R: Read>(reader: &mut R) -> Result<Self> {
-        reader.read_u32::<BigEndian>()
     }
 }
 
@@ -113,36 +102,47 @@ impl Serialize for u64 {
     fn serialize<W: Write>(self, writer: &mut W) -> Result<()> {
         writer.write_u64::<BigEndian>(self)
     }
-    fn deserialize<R: Read>(reader: &mut R) -> Result<Self> {
-        reader.read_u64::<BigEndian>()
-    }
 }
 
-impl<T: Serialize> Serialize for Vec<T> {
-    fn serialize<W: Write>(self, writer: &mut W) -> Result<()> {
-        panic!("Not implemented");
-        Ok(())
-    }
-    fn deserialize<R: Read>(reader: &mut R) -> Result<Self> {
-        let count = reader.read_i32::<BigEndian>()?;
-        let mut r = vec![];
-        // TODO check > 0 ??
-        for _ in 0..count {
-            let val: T = Serialize::deserialize(reader)?;
-            r.push(val);
-        }
-        Ok(r)
-    }
-}
-
-impl Serialize for String {
+impl Serialize for &str {
     fn serialize<W: Write>(self, writer: &mut W) -> Result<()> {
         let utf8 = self.as_bytes();
         writer.write_u32::<BigEndian>(utf8.len().try_into().unwrap())?;
         writer.write_all(utf8);
         Ok(())
     }
-    
+}
+
+trait Deserialize {
+    fn deserialize<R: Read>(reader: &mut R) -> Result<Self>
+        where Self: std::marker::Sized;
+}
+
+impl Deserialize for u8 {
+    fn deserialize<R: Read>(reader: &mut R) -> Result<Self> {
+        reader.read_u8()
+    }
+}
+
+impl Deserialize for u16 {
+    fn deserialize<R: Read>(reader: &mut R) -> Result<Self> {
+        reader.read_u16::<BigEndian>()
+    }
+}
+
+impl Deserialize for u32 {
+    fn deserialize<R: Read>(reader: &mut R) -> Result<Self> {
+        reader.read_u32::<BigEndian>()
+    }
+}
+
+impl Deserialize for u64 {
+    fn deserialize<R: Read>(reader: &mut R) -> Result<Self> {
+        reader.read_u64::<BigEndian>()
+    }
+}
+
+impl Deserialize for String {
     fn deserialize<R: Read>(reader: &mut R) -> Result<Self> {
         let str_len = reader.read_u32::<BigEndian>()?;
     
@@ -151,6 +151,19 @@ impl Serialize for String {
         // TODO handle utf8 conversion errors, which will involve changing return
         // type (or maybe using lossy conversion?)
         Ok(String::from_utf8(buf).unwrap())
+    }
+}
+
+impl<T: Deserialize> Deserialize for Vec<T> {
+    fn deserialize<R: Read>(reader: &mut R) -> Result<Self> {
+        let count = reader.read_i32::<BigEndian>()?;
+        let mut r = vec![];
+        // TODO check > 0 ??
+        for _ in 0..count {
+            let val: T = Deserialize::deserialize(reader)?;
+            r.push(val);
+        }
+        Ok(r)
     }
 }
 
@@ -184,18 +197,11 @@ macro_rules! command_set {
                 )*
             }
 
-            impl Serialize for $resp_name {
-                fn serialize<W: Write>(self, writer: &mut W) -> Result<()> {
-                    // TODO could we leave this unimplemented?
-                    $(
-                        self.$resp_val.serialize(writer)?;
-                    )*
-                    Ok(())
-                }
+            impl Deserialize for $resp_name {
                 fn deserialize<R: Read>(reader: &mut R) -> Result<Self> {
                     Ok($resp_name {
                         $(
-                            $resp_val: Serialize::deserialize(reader)?,
+                            $resp_val: Deserialize::deserialize(reader)?,
                         )*
                     })
                 }
@@ -209,17 +215,11 @@ macro_rules! command_set {
                     )*
                 }
 
-                impl Serialize for $addn_name {
-                    fn serialize<W: Write>(self, writer: &mut W) -> Result<()> {
-                        $(
-                            self.$addn_val.serialize(writer)?;
-                        )*
-                        Ok(())
-                    }
+                impl Deserialize for $addn_name {
                     fn deserialize<R: Read>(reader: &mut R) -> Result<Self> {
                         Ok($addn_name {
                             $(
-                                $addn_val: Serialize::deserialize(reader)?,
+                                $addn_val: Deserialize::deserialize(reader)?,
                             )*
                         })
                     }
@@ -233,7 +233,7 @@ macro_rules! command_set {
                 )*
                 let mut resp_buf = Cursor::new(conn.execute_cmd($set_id, $cmd_id, &buf)?);
 
-                Serialize::deserialize(&mut resp_buf)
+                Deserialize::deserialize(&mut resp_buf)
             }
         )+
     };
@@ -260,7 +260,7 @@ command_set! {
         command_fn: classes_by_signature;
         command_id: 2;
         args: {
-            signature: String
+            signature: &str
         }
         response_type: ClassesBySignatureReply {
             classes: Vec<ClassesBySignatureReplyClass>

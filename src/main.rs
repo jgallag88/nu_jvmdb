@@ -50,7 +50,7 @@ fn main() {
     println!("{:?}", v);
     // TODO we want to be able to accept &str instead of a String, but we want
     // to return a String
-    let v = jdwp::classes_by_signature(&j_conn, "LExamples;".to_string()).unwrap();
+    let v = jdwp::classes_by_signature(&j_conn, "LExamples;").unwrap();
     println!("{:?}", v);
 
     //serve_plugin(&mut Len::new());
