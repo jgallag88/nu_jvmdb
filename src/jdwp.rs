@@ -98,6 +98,12 @@ impl Serialize for u32 {
     }
 }
 
+impl Serialize for i32 {
+    fn serialize<W: Write>(self, writer: &mut W) -> Result<()> {
+        writer.write_i32::<BigEndian>(self)
+    }
+}
+
 impl Serialize for u64 {
     fn serialize<W: Write>(self, writer: &mut W) -> Result<()> {
         writer.write_u64::<BigEndian>(self)
@@ -133,6 +139,12 @@ impl Deserialize for u16 {
 impl Deserialize for u32 {
     fn deserialize<R: Read>(reader: &mut R) -> Result<Self> {
         reader.read_u32::<BigEndian>()
+    }
+}
+
+impl Deserialize for i32 {
+    fn deserialize<R: Read>(reader: &mut R) -> Result<Self> {
+        reader.read_i32::<BigEndian>()
     }
 }
 
@@ -258,8 +270,8 @@ command_set! {
         args: {}
         response_type: VersionReply {
             description: String,
-            jdwp_major: u32, // TODO this should be i32
-            jdwp_minor: u32, // TODO this should be i32
+            jdwp_major: i32,
+            jdwp_minor: i32,
             vm_version: String,
             vm_name: String
         }
@@ -298,18 +310,18 @@ command_set! {
         command_id: 7;
         args: {}
         response_type: IdSizesReply {
-            field_id_size: u32, // TODO this should be i32
-            method_id_size: u32, // TODO this should be i32
-            object_id_size: u32, // TODO this should be i32
-            reference_type_id_size: u32, // TODO this should be i32
-            frame_id_size: u32 // TODO this should be i32
+            field_id_size: i32,
+            method_id_size: i32,
+            object_id_size: i32,
+            reference_type_id_size: i32,
+            frame_id_size: i32
         }
     }
     command {
         command_fn: exit;
         command_id: 10;
         args: {
-            exit_code: u32 // TODO this should be i32
+            exit_code: i32
         }
         response_type: ExitReply {}
     }
