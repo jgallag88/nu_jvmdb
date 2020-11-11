@@ -109,6 +109,32 @@ impl Serialize for u32 {
     }
 }
 
+impl Serialize for u64 {
+    fn serialize<W: Write>(self, writer: &mut W) -> Result<()> {
+        writer.write_u64::<BigEndian>(self)
+    }
+    fn deserialize<R: Read>(reader: &mut R) -> Result<Self> {
+        reader.read_u64::<BigEndian>()
+    }
+}
+
+impl<T: Serialize> Serialize for Vec<T> {
+    fn serialize<W: Write>(self, writer: &mut W) -> Result<()> {
+        panic!("Not implemented");
+        Ok(())
+    }
+    fn deserialize<R: Read>(reader: &mut R) -> Result<Self> {
+        let count = reader.read_i32::<BigEndian>()?;
+        let mut r = vec![];
+        // TODO check > 0 ??
+        for _ in 0..count {
+            let val: T = Serialize::deserialize(reader)?;
+            r.push(val);
+        }
+        Ok(r)
+    }
+}
+
 impl Serialize for String {
     fn serialize<W: Write>(self, writer: &mut W) -> Result<()> {
         let utf8 = self.as_bytes();
@@ -128,78 +154,156 @@ impl Serialize for String {
     }
 }
 
-
-macro_rules! command {
-    ( command_fn: $command:ident;
-      command_id: $id:expr;
-      args: {
-          $( $arg:ident: $arg_ty:ty ),*
-      }
-      response_type: $resp_name:ident {
-          $( $resp_val:ident: $resp_val_ty:ty ),*
-      }
+// TODO can we de-duplicate the struct/Serialize impl for response and additional types?
+// TODO use cmd_set as mod ?
+macro_rules! command_set {
+    ( set_name: $cmd_set:ident;
+      set_id: $set_id:expr;
+      $(command {
+          command_fn: $cmd:ident;
+          command_id: $cmd_id:expr;
+          args: {
+              $( $arg:ident: $arg_ty:ty ),*
+          }
+          response_type: $resp_name:ident {
+              $( $resp_val:ident: $resp_val_ty:ty ),*
+          }
+          $(
+              additional_type: $addn_name:ident {
+                  $( $addn_val:ident: $addn_val_ty:ty ),*
+              }
+          )*
+      } )+
     ) => {
 
-        #[derive(Debug)]
-        pub struct $resp_name {
-            $(
-                $resp_val: $resp_val_ty,
-            )*
-        }
-
-        pub fn $command(conn: &JdwpConnection $(, $arg: $arg_ty )* ) -> Result<$resp_name> {
-            let mut buf = vec![];
-            $(
-                $arg.serialize(&mut buf)?;
-            )*
-            let mut resp_buf = Cursor::new(conn.execute_cmd(1, $id, &buf)?);
-
-            Ok($resp_name {
+        $(
+            #[derive(Debug)]
+            pub struct $resp_name {
                 $(
-                    $resp_val: Serialize::deserialize(&mut resp_buf)?,
+                    $resp_val: $resp_val_ty,
                 )*
-            })
+            }
+
+            impl Serialize for $resp_name {
+                fn serialize<W: Write>(self, writer: &mut W) -> Result<()> {
+                    // TODO could we leave this unimplemented?
+                    $(
+                        self.$resp_val.serialize(writer)?;
+                    )*
+                    Ok(())
+                }
+                fn deserialize<R: Read>(reader: &mut R) -> Result<Self> {
+                    Ok($resp_name {
+                        $(
+                            $resp_val: Serialize::deserialize(reader)?,
+                        )*
+                    })
+                }
+            }
+
+            $(
+                #[derive(Debug)]
+                pub struct $addn_name {
+                    $(
+                        $addn_val: $addn_val_ty,
+                    )*
+                }
+
+                impl Serialize for $addn_name {
+                    fn serialize<W: Write>(self, writer: &mut W) -> Result<()> {
+                        $(
+                            self.$addn_val.serialize(writer)?;
+                        )*
+                        Ok(())
+                    }
+                    fn deserialize<R: Read>(reader: &mut R) -> Result<Self> {
+                        Ok($addn_name {
+                            $(
+                                $addn_val: Serialize::deserialize(reader)?,
+                            )*
+                        })
+                    }
+                }
+            )*
+
+            pub fn $cmd(conn: &JdwpConnection $(, $arg: $arg_ty )* ) -> Result<$resp_name> {
+                let mut buf = vec![];
+                $(
+                    $arg.serialize(&mut buf)?;
+                )*
+                let mut resp_buf = Cursor::new(conn.execute_cmd($set_id, $cmd_id, &buf)?);
+
+                Serialize::deserialize(&mut resp_buf)
+            }
+        )+
+    };
+}
+
+// https://docs.oracle.com/en/java/javase/11/docs/specs/jdwp/jdwp-protocol.html
+
+command_set! {
+    set_name: VirtualMachine;
+    set_id: 1;
+    command {
+        command_fn: version;
+        command_id: 1;
+        args: {}
+        response_type: VersionReply {
+            description: String,
+            jdwp_major: u32, // TODO this should be i32
+            jdwp_minor: u32, // TODO this should be i32
+            vm_version: String,
+            vm_name: String
         }
-    };
-}
-
-command! {
-    command_fn: version;
-    command_id: 1;
-    args: {}
-    response_type: VersionReply {
-        description: String,
-        jdwp_major: u32, // TODO this should be i32
-        jdwp_minor: u32, // TODO this should be i32
-        vm_version: String,
-        vm_name: String
+    }
+    command {
+        command_fn: classes_by_signature;
+        command_id: 2;
+        args: {
+            signature: String
+        }
+        response_type: ClassesBySignatureReply {
+            classes: Vec<ClassesBySignatureReplyClass>
+        }
+        additional_type: ClassesBySignatureReplyClass {
+            ref_type_tag: u8, // TODO could use custom type here
+            type_id: u64, // TODO this should be a referenceTypeId
+            status: u32 // TODO could use special enum here too
+        }
+    }
+    command {
+        command_fn: all_classes;
+        command_id: 3;
+        args: {}
+        response_type: AllClassesReply {
+            classes: Vec<AllClassesReplyClass>
+        }
+        additional_type: AllClassesReplyClass {
+            ref_type_tag: u8, // TODO could use custom type here
+            type_id: u64, // TODO this should be a referenceTypeId
+            signature: String,
+            status: u32 // TODO could use special enum here too
+        }
+    }
+    command {
+        command_fn: id_sizes;
+        command_id: 7;
+        args: {}
+        response_type: IdSizesReply {
+            field_id_size: u32, // TODO this should be i32
+            method_id_size: u32, // TODO this should be i32
+            object_id_size: u32, // TODO this should be i32
+            reference_type_id_size: u32, // TODO this should be i32
+            frame_id_size: u32 // TODO this should be i32
+        }
+    }
+    command {
+        command_fn: exit;
+        command_id: 10;
+        args: {
+            exit_code: u32 // TODO this should be i32
+        }
+        response_type: ExitReply {}
     }
 }
-command! {
-    command_fn: id_sizes;
-    command_id: 7;
-    args: {}
-    response_type: IdSizesReply {
-        field_id_size: u32, // TODO this should be i32
-        method_id_size: u32, // TODO this should be i32
-        object_id_size: u32, // TODO this should be i32
-        reference_type_id_size: u32, // TODO this should be i32
-        frame_id_size: u32 // TODO this should be i32
-    }
-}
-command! {
-    command_fn: exit;
-    command_id: 10;
-    args: {
-        exit_code: u32 // TODO this should be i32
-    }
-    response_type: ExitReply {}
-}
 
-macro_rules! command_set {
-    ( $command_set:ident, $set_id:expr; ) => {
-        struct $command_set {}
-    };
-}
-
-command_set!{ Foo, 23; }

@@ -46,7 +46,12 @@ impl Plugin for Len {
 fn main() {
     let j_conn = JdwpConnection::new("localhost:5005").unwrap();
     println!("{:?}", jdwp::version(&j_conn).unwrap());
-    jdwp::exit(&j_conn, 18).unwrap();
+    let v = jdwp::all_classes(&j_conn).unwrap();
+    println!("{:?}", v);
+    // TODO we want to be able to accept &str instead of a String, but we want
+    // to return a String
+    let v = jdwp::classes_by_signature(&j_conn, "LExamples;".to_string()).unwrap();
+    println!("{:?}", v);
 
     //serve_plugin(&mut Len::new());
 }
