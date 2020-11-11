@@ -41,7 +41,7 @@ impl JdwpConnection {
             frame_id_size: 0,
         };
 
-        let id_sizes = { id_sizes(&conn)? };
+        let id_sizes = { virtual_machine::id_sizes(&conn)? };
         // TODO check sizes
         conn.field_id_size = id_sizes.field_id_size.try_into().unwrap();
         conn.method_id_size = id_sizes.method_id_size.try_into().unwrap();
@@ -170,7 +170,7 @@ impl<T: Deserialize> Deserialize for Vec<T> {
 // TODO can we de-duplicate the struct/Serialize impl for response and additional types?
 // TODO use cmd_set as mod ?
 macro_rules! command_set {
-    ( set_name: $cmd_set:ident;
+    ( set_name: $cmd_set_name:ident;
       set_id: $set_id:expr;
       $(command {
           command_fn: $cmd:ident;
@@ -188,12 +188,17 @@ macro_rules! command_set {
           )*
       } )+
     ) => {
+        pub mod $cmd_set_name {
+            use super::{Deserialize, JdwpConnection, Serialize};
+            use std::io::{Cursor, Read, Write};
+            use std::io::Result;
 
-        $(
+            $(
+
             #[derive(Debug)]
             pub struct $resp_name {
                 $(
-                    $resp_val: $resp_val_ty,
+                    pub $resp_val: $resp_val_ty,
                 )*
             }
 
@@ -211,7 +216,7 @@ macro_rules! command_set {
                 #[derive(Debug)]
                 pub struct $addn_name {
                     $(
-                        $addn_val: $addn_val_ty,
+                        pub $addn_val: $addn_val_ty,
                     )*
                 }
 
@@ -235,14 +240,17 @@ macro_rules! command_set {
 
                 Deserialize::deserialize(&mut resp_buf)
             }
-        )+
+            )+
+        }
     };
 }
 
+// TODO Link to
 // https://docs.oracle.com/en/java/javase/11/docs/specs/jdwp/jdwp-protocol.html
+// in docs of generated module
 
 command_set! {
-    set_name: VirtualMachine;
+    set_name: virtual_machine;
     set_id: 1;
     command {
         command_fn: version;

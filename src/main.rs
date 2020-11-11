@@ -5,7 +5,9 @@ use nu_protocol::{
 };
 
 mod jdwp;
+
 use crate::jdwp::JdwpConnection;
+use crate::jdwp::virtual_machine;
 
 struct Len;
 
@@ -45,12 +47,12 @@ impl Plugin for Len {
 
 fn main() {
     let j_conn = JdwpConnection::new("localhost:5005").unwrap();
-    println!("{:?}", jdwp::version(&j_conn).unwrap());
-    let v = jdwp::all_classes(&j_conn).unwrap();
+    println!("{:?}", virtual_machine::version(&j_conn).unwrap());
+    let v = virtual_machine::all_classes(&j_conn).unwrap();
     println!("{:?}", v);
     // TODO we want to be able to accept &str instead of a String, but we want
     // to return a String
-    let v = jdwp::classes_by_signature(&j_conn, "LExamples;").unwrap();
+    let v = virtual_machine::classes_by_signature(&j_conn, "LExamples;").unwrap();
     println!("{:?}", v);
 
     //serve_plugin(&mut Len::new());
