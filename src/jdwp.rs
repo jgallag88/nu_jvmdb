@@ -305,6 +305,15 @@ command_set! {
             status: u32 // TODO could use special enum here too
         }
     }
+
+    command {
+        command_fn: all_threads;
+        command_id: 4;
+        args: {}
+        response_type: AllThreadsReply {
+            threads: Vec<u64>  // TODO this should be threadId type
+        }
+    }
     command {
         command_fn: id_sizes;
         command_id: 7;
