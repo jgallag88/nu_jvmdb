@@ -18,7 +18,7 @@ pub struct JdwpConnection {
 
 impl JdwpConnection {
     pub fn new<A: ToSocketAddrs>(jvm_debug_addr: A) -> Result<Self> {
-        let mut stream = TcpStream::connect("localhost:5005")?;
+        let mut stream = TcpStream::connect(jvm_debug_addr)?;
         stream.write_all(b"JDWP-Handshake")?;
         // TODO do we need to flush?
         let mut buf = [0; 128];

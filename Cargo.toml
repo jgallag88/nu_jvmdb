@@ -4,9 +4,19 @@ version = "0.1.0"
 authors = ["John Gallagher <john@gllghr.com>"]
 edition = "2018"
 
+# TODO rename these
+[[bin]]
+name = "javadbg"
+path = "src/javadbg.rs"
+
+[[bin]]
+name = "nu_jvmdb"
+path = "src/main.rs"
+
 [dependencies]
 nu-plugin = "~0"
 nu-protocol = "~0"
 nu-source = "~0"
 nu-errors = "~0"
 byteorder = "1.3"
+tokio = { version = "0.3", features = ["full"] }

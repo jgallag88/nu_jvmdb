@@ -46,10 +46,10 @@ impl Plugin for Len {
 }
 
 fn main() {
-    let j_conn = JdwpConnection::new("localhost:5005").unwrap();
+    let j_conn = JdwpConnection::new("localhost:1234").unwrap();
     println!("{:?}", virtual_machine::version(&j_conn).unwrap());
-    let v = virtual_machine::all_classes(&j_conn).unwrap();
-    println!("{:?}", v);
+    //let v = virtual_machine::all_classes(&j_conn).unwrap();
+    //println!("{:?}", v);
     // TODO we want to be able to accept &str instead of a String, but we want
     // to return a String
     let v = virtual_machine::classes_by_signature(&j_conn, "LExamples;").unwrap();
