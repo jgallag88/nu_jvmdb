@@ -55,5 +55,5 @@ fn main() {
     let v = virtual_machine::classes_by_signature(&j_conn, "LExamples;").unwrap();
     println!("{:?}", v);
 
-    //serve_plugin(&mut Len::new());
+    serve_plugin(&mut Len::new());
 }

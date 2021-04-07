@@ -64,7 +64,7 @@ async fn write_server(mut socket: OwnedWriteHalf,
     while let Some(cmd) = chan_incoming.recv().await {
         // Forward the info about the outstanding cmd before issuing it, to make
         // sure that the task handling the read end of the socket knows about the
-        // cmd before the reply arrives.
+        // cmd before the corresponding reply arrives.
         chan_outstanding.send(OutstandingCmd {
             client_id: cmd.id,
             proxy_id: proxy_id,
@@ -90,16 +90,22 @@ struct OutstandingCmd {
 async fn read_server(mut socket: OwnedReadHalf,
                      mut chan: mpsc::Receiver<OutstandingCmd>) -> io::Result<()> {
 
+    // TODO rename?
     let mut id_map: HashMap<u32, (u32, mpsc::Sender<Reply>)> = HashMap::new();
 
     loop {
         // TODO deduplicate wrt read_client
+        println!("1");
         let len = socket.read_u32().await?;
+        println!("{}", len);
         let id = socket.read_u32().await?;
+        println!("{}", id);
         let mut rest = vec![0; len as usize - 8]; // TODO check size before cast
         socket.read_exact(&mut rest).await?;
+        println!("{:?}", rest);
 
-        // Should have arrived
+        // The info associated with this reply should be waiting in the channel,
+        // if we haven't already receivied it.
         while let Ok(outstanding) = chan.try_recv() {
             let old_val = id_map.insert(outstanding.proxy_id,
                                         (outstanding.client_id, outstanding.reply_chan));

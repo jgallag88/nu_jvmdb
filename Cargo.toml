@@ -10,7 +10,7 @@ name = "javadbg"
 path = "src/javadbg.rs"
 
 [[bin]]
-name = "nu_jvmdb"
+name = "nu_plugin_j"
 path = "src/main.rs"
 
 [dependencies]
