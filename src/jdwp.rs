@@ -48,6 +48,10 @@ impl JdwpConnection {
         conn.object_id_size = id_sizes.object_id_size.try_into().unwrap();
         conn.reference_type_id_size = id_sizes.reference_type_id_size.try_into().unwrap();
         conn.frame_id_size = id_sizes.frame_id_size.try_into().unwrap();
+        println!("field id size: {}", conn.field_id_size);
+        println!("frame id size: {}", conn.frame_id_size);
+        println!("method id size: {}", conn.method_id_size);
+        println!("reference type id size: {}", conn.reference_type_id_size);
 
         Ok(conn)
     }
@@ -69,6 +73,9 @@ impl JdwpConnection {
         let _id = stream.read_u32::<BigEndian>()?; // TODO check that id is what we expect
         let flags = stream.read_u8()?; // TODO check response flag
         let error_code = stream.read_u16::<BigEndian>()?;
+        if (error_code != 0) {
+            panic!("Error code: {}", error_code);
+        }
         let mut buf = vec![0; len as usize];
         stream.read_exact(&mut buf)?;
         Ok(buf)
@@ -179,6 +186,25 @@ impl<T: Deserialize> Deserialize for Vec<T> {
     }
 }
 
+#[derive(Debug)]
+pub struct Location {
+    pub type_tag: u8, // TODO use special type tag field
+    pub class_id: u64, // TODO
+    pub method_id: u64, // TODO
+    pub location_idx: u64,
+}
+
+impl Deserialize for Location {
+    fn deserialize<R: Read>(reader: &mut R) -> Result<Self> {
+        Ok(Location {
+            type_tag: Deserialize::deserialize(reader)?,
+            class_id: Deserialize::deserialize(reader)?,
+            method_id: Deserialize::deserialize(reader)?,
+            location_idx: Deserialize::deserialize(reader)?,
+        })
+    }
+}
+
 // TODO can we de-duplicate the struct/Serialize impl for response and additional types?
 // TODO use cmd_set as mod ?
 macro_rules! command_set {
@@ -201,7 +227,7 @@ macro_rules! command_set {
       } )+
     ) => {
         pub mod $cmd_set_name {
-            use super::{Deserialize, JdwpConnection, Serialize};
+            use super::{Deserialize, JdwpConnection, Serialize, Location};
             use std::io::{Cursor, Read, Write};
             use std::io::Result;
 
@@ -327,6 +353,18 @@ command_set! {
         }
     }
     command {
+        command_fn: suspend;
+        command_id: 8;
+        args: {}
+        response_type: SuspendReply {} // TODO do we need to define these emtpy replies?
+    }
+    command {
+        command_fn: resume;
+        command_id: 9;
+        args: {}
+        response_type: ResumeReply {}
+    }
+    command {
         command_fn: exit;
         command_id: 10;
         args: {
@@ -336,3 +374,70 @@ command_set! {
     }
 }
 
+command_set! {
+    set_name: reference_type;
+    set_id: 2;
+    command {
+        command_fn: signature;
+        command_id: 1;
+        args: {
+            reference_type_id: u64 // TODO this should be reference_type_id type
+        }
+        response_type: SignatureReply {
+            signature: String
+        }
+    }
+    command {
+        command_fn: methods;
+        command_id: 5;
+        args: {
+            reference_type_id: u64 // TODO this should be reference_type_id type
+        }
+        response_type: MethodReply {
+            methods: Vec<Method>
+        }
+        additional_type: Method {
+            method_id: u64,  // TODO this should be a methodId type
+            name: String,
+            signature: String,
+            mod_bits: i32
+        }
+    }
+}
+
+command_set! {
+    set_name: thread_reference;
+    set_id: 11;
+    command {
+        // TODO is this name good?
+        command_fn: name;
+        command_id: 1;
+        args: {
+            thread_id: u64 // TODO this should be threadId type
+        }
+        response_type: NameReply {
+            name: String
+        }
+    }
+    command {
+        command_fn: frames;
+        command_id: 6;
+        args: {
+            thread_id: u64, // TODO this should be threadId type
+            start_frame: i32,
+            length: i32
+        }
+        response_type: FramesReply {
+            frames: Vec<Frame>
+        }
+        additional_type: Frame {
+            frame_id: u64, // TODO this should be a frameId type
+            location: Location
+            // Remaining fields make up a location, might want to create a distinct Location Type
+            //type_tag: u8,
+            //class_id: u64,  // TODO this should be a classId type
+            //method_id: u64,  // TODO this should be a methodId type
+            //location_index: u64
+        }
+    }
+}

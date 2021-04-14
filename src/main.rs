@@ -1,59 +1,53 @@
-use nu_errors::ShellError;
-use nu_plugin::{serve_plugin, Plugin};
-use nu_protocol::{
-    CallInfo, Primitive, ReturnSuccess, ReturnValue, Signature, UntaggedValue, Value,
-};
-
 mod jdwp;
 
 use crate::jdwp::JdwpConnection;
 use crate::jdwp::virtual_machine;
-
-struct Len;
-
-impl Len {
-    fn new() -> Len {
-        Len
-    }
-
-    fn len(&mut self, value: Value) -> Result<Value, ShellError> {
-        match &value.value {
-            UntaggedValue::Primitive(Primitive::String(s)) => Ok(Value {
-                value: UntaggedValue::int(s.len() as i64),
-                tag: value.tag,
-            }),
-            _ => Err(ShellError::labeled_error(
-                "Unrecognized type in stream",
-                "'len' given non-string info by this",
-                value.tag.span,
-            )),
-        }
-    }
-}
-
-impl Plugin for Len {
-    fn config(&mut self) -> Result<Signature, ShellError> {
-        Ok(Signature::build("len").desc("My custom len plugin").filter())
-    }
-
-    fn begin_filter(&mut self, _: CallInfo) -> Result<Vec<ReturnValue>, ShellError> {
-        Ok(vec![])
-    }
-
-    fn filter(&mut self, input: Value) -> Result<Vec<ReturnValue>, ShellError> {
-        Ok(vec![ReturnSuccess::value(self.len(input)?)])
-    }
-}
+use crate::jdwp::reference_type;
+use crate::jdwp::thread_reference;
+use crate::jdwp::Location;
 
 fn main() {
-    let j_conn = JdwpConnection::new("localhost:1234").unwrap();
+    let j_conn = JdwpConnection::new("localhost:12345").unwrap();
     println!("{:?}", virtual_machine::version(&j_conn).unwrap());
     //let v = virtual_machine::all_classes(&j_conn).unwrap();
     //println!("{:?}", v);
     // TODO we want to be able to accept &str instead of a String, but we want
     // to return a String
-    let v = virtual_machine::classes_by_signature(&j_conn, "LExamples;").unwrap();
+    //let v = virtual_machine::classes_by_signature(&j_conn, "LExample;").unwrap();
+    //println!("{:?}", v);
+    virtual_machine::suspend(&j_conn).unwrap();
+    let v = virtual_machine::all_threads(&j_conn).unwrap();
     println!("{:?}", v);
+    let v = virtual_machine::all_threads(&j_conn).unwrap();
+    for thread_id in v.threads {
+        print_stacktrace(thread_id, &j_conn)
+    }
+    virtual_machine::resume(&j_conn).unwrap();
+}
 
-    serve_plugin(&mut Len::new());
+fn print_stacktrace(id: u64, conn: &JdwpConnection) {
+        let name_reply = thread_reference::name(conn, id).unwrap();
+        println!("Thread {}: {}", id, name_reply.name);
+        let frames_reply = thread_reference::frames(conn, id, 0, -1).unwrap();
+        for frame in frames_reply.frames {
+            let class_sig = reference_type::signature(conn, frame.location.class_id).unwrap().signature;
+            let method_name = get_method_name(conn, frame.location.class_id, frame.location.method_id);
+            println!("    {}.{}()", signature_to_classname(&class_sig), method_name);
+        }
+        println!("");
+}
+
+fn signature_to_classname(sig: &str) -> String {
+    // Assuming this sig is Lfully/qualified/Classname; for now
+    let s = sig.trim_start_matches('L').trim_end_matches(';');
+    return s.replace('/', ".");
+}
+
+fn get_method_name(conn: &JdwpConnection, class_id: u64, method_id: u64) -> String {
+    for method in reference_type::methods(conn, class_id).unwrap().methods {
+        if method.method_id == method_id {
+            return method.name;
+        }
+    }
+    panic!("didn't find method name");
 }

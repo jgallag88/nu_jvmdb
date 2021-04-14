@@ -1,11 +1,15 @@
+package com.example;
+
 class Example {
     public static void main(String[] args) throws Exception {
-        //int x = 0;
-        //for (long i=0; i<999999999999L; i++) {
-        //    for (long j=0; j<999999999999L; j++) {
-        //        x += i*j;
-        //    }
-        //}
+	a();
+    }
+
+    private static void a() throws Exception {
+	    b();
+    }
+
+    private static void b() throws Exception {
         System.out.println("Sleeping...");
         Thread.sleep(10000000);
     }
